@@ -4,25 +4,26 @@ import (
 	"context"
 	"encoding/base64"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
-	"github.com/microcosm-cc/bluemonday"
 	sendgrid "github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
-	"github.com/vanng822/go-premailer/premailer"
 	"golang.org/x/oauth2/google"
 	drive "google.golang.org/api/drive/v3"
 )
 
-// Notes:
-// Inline styles: https://github.com/vanng822/go-premailer
+// TODO:
+// - Send test email
+// - Wait for approval
+// - Send to mutliple recipients? or just use a google group.
+// - Reply-To
+// - BCC
+// - Config file?
 
 var (
 	fileID           = flag.String("file-id", "", "Google Docs file ID")
@@ -32,13 +33,6 @@ var (
 	emailToName      = flag.String("email-to-name", "", "Name of recipient")
 	emailToAddress   = flag.String("email-to-address", "", "Address of recipient")
 	emailSubject     = flag.String("email-subject", "", "Subject line")
-
-	reStyleAttr, _ = regexp.Compile("style=\"[^\"]+\"")
-
-	validStyles = map[string]bool{
-		"font-style:italic": true,
-		"font-weight:700":   true,
-	}
 )
 
 func main() {
@@ -89,42 +83,18 @@ func main() {
 
 	log.WithField("filename", filename).Info("HTML file found")
 
-	// Clean up the HTML that Google sends us.
-	sanitizer := bluemonday.UGCPolicy()
-	sanitizer.AllowStyling()
-	sanitizer.AllowAttrs("style").OnElements("span")
-	htmlContent := string(sanitizer.SanitizeBytes(files[filename]))
+	htmlContent, err := cleanHTML(string(files[filename]))
+	if err != nil {
+		log.WithError(err).Fatal("Failed to clean HTML")
+	}
 
-	// HackHack: Google doesn't use markup for basic styling so remove all the
-	// junk but keep the parts responsible for bold and italic etc.
-	htmlContent = reStyleAttr.ReplaceAllStringFunc(htmlContent, func(styles string) string {
-		styles = strings.TrimPrefix(styles, "style=\"")
-		styles = strings.TrimSuffix(styles, "\"")
-		in := strings.Split(styles, ";")
-		out := []string{}
-		for _, s := range in {
-			if ok := validStyles[s]; ok {
-				out = append(out, s)
-			}
-		}
-		if len(out) == 0 {
-			return ""
-		}
-		return fmt.Sprintf("style=\"%s\"", strings.Join(out, ";"))
-	})
-
+	// Look for any URLs that reference files within the archive, and update their
+	// URL to look at the email "cid" scheme.
 	for name := range files {
 		htmlContent = strings.Replace(htmlContent, name, "cid:"+name, -1)
 	}
 
-	// Inline additional styles
-	p := premailer.NewPremailerFromString(htmlHeader+htmlContent+htmlFooter, premailer.NewOptions())
-	styledContent, err := p.Transform()
-	if err != nil {
-		log.WithError(err).Fatal("Failed inlining styles")
-	}
-
-	if err := ioutil.WriteFile(filename, []byte(styledContent), os.ModePerm); err != nil {
+	if err := ioutil.WriteFile(filename, []byte(htmlContent), os.ModePerm); err != nil {
 		log.WithError(err).WithField("filename", filename).Error("Failed to write debug file, continuing")
 	} else {
 		log.WithField("filename", filename).Info("Writing debug file")
@@ -136,7 +106,19 @@ func main() {
 	to := mail.NewEmail(*emailToName, *emailToAddress)
 	subject := *emailSubject
 
-	message := mail.NewSingleEmail(from, subject, to, "[Please enable HTML emails]", styledContent)
+	log.WithField("subject", subject).Info("Preparing email")
+
+	m := mail.NewV3Mail()
+	m.SetFrom(from)
+	m.Subject = subject
+
+	p := mail.NewPersonalization()
+	p.AddTos(to)
+	m.AddPersonalizations(p)
+
+	c := mail.NewContent("text/html", htmlContent)
+	m.AddContent(c)
+
 	for name, body := range files {
 		if name != filename {
 			a := mail.NewAttachment()
@@ -145,12 +127,14 @@ func main() {
 			a.SetFilename(name)
 			a.SetDisposition("inline")
 			a.SetContentID(name)
-			message.AddAttachment(a)
+			m.AddAttachment(a)
 		}
 	}
 
+	return
+
 	sg := sendgrid.NewSendClient(*sendgridAPIKey)
-	if _, err := sg.Send(message); err != nil {
+	if _, err := sg.Send(m); err != nil {
 		log.WithError(err).Fatal("Failed to send email")
 	}
 

@@ -32,12 +32,13 @@ h3,
 h4,
 h5,
 h6 {
-  margin-top: 0;
+  margin-top: 6px;
   margin-bottom: 13px;
 }
 h1 {
   font-size: 26px;
   font-weight: 600;
+
 }
 h2 {
   font-size: 22px;
@@ -46,7 +47,7 @@ h2 {
 h3 {
   font-size: 20px;
   font-weight: 400;
-  font-weight: italic;
+  color: #666;
 }
 h4 {
   font-size: 16px;
@@ -79,6 +80,3 @@ hr {
   background-color: #CCC;
 }
 `
-
-const htmlHeader = `<html><head><style>` + inlineStyles + `</style></head><body><div class="body">`
-const htmlFooter = `</div></body></html>`
