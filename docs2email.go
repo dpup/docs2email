@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	netmail "net/mail"
 	"os"
 	"strings"
 
@@ -18,21 +21,18 @@ import (
 )
 
 // TODO:
-// - Send test email
-// - Wait for approval
-// - Send to mutliple recipients? or just use a google group.
-// - Reply-To
-// - BCC
 // - Config file?
 
 var (
-	fileID           = flag.String("file-id", "", "Google Docs file ID")
-	sendgridAPIKey   = flag.String("sendgrid-api-key", "", "Sendgrid API key")
-	emailFromName    = flag.String("email-from-name", "", "Name of recipient")
-	emailFromAddress = flag.String("email-from-address", "", "Address of recipient")
-	emailToName      = flag.String("email-to-name", "", "Name of recipient")
-	emailToAddress   = flag.String("email-to-address", "", "Address of recipient")
-	emailSubject     = flag.String("email-subject", "", "Subject line")
+	fileID         = flag.String("file-id", "", "Google Docs file ID")
+	sendgridAPIKey = flag.String("sendgrid-api-key", "", "Sendgrid API key")
+
+	emailFrom    = flag.String("from", "", "Sender: e.g. Alice <alice@example.com>")
+	emailTest    = flag.String("test", "", "Test recipient: e.g. Alice <alice@example.com>")
+	emailTo      = flag.String("to", "", "Recipient list: e.g. Alice <alice@example.com>, Bob <bob@example.com>, Eve <eve@example.com>")
+	emailCC      = flag.String("cc", "", "CC list: e.g. Alice <alice@example.com>, Bob <bob@example.com>, Eve <eve@example.com>")
+	emailBCC     = flag.String("bcc", "", "BCC list: e.g. Alice <alice@example.com>, Bob <bob@example.com>, Eve <eve@example.com>")
+	emailSubject = flag.String("subject", "", "Subject line")
 )
 
 func main() {
@@ -41,6 +41,29 @@ func main() {
 
 	if *sendgridAPIKey == "" {
 		log.Fatal("Sendgrid not configured. Please set SENDGRID_API_KEY")
+	}
+	if *emailSubject == "" {
+		log.Fatal("No subject specified")
+	}
+	sender, err := netmail.ParseAddress(*emailFrom)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to parse sender")
+	}
+	testRecipient, err := netmail.ParseAddress(*emailTest)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to parse test recipient")
+	}
+	to, err := parseAddressList(*emailTo)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to parse recipient list")
+	}
+	cc, err := parseAddressList(*emailCC)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to parse CC list")
+	}
+	bcc, err := parseAddressList(*emailBCC)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to parse BCC list")
 	}
 
 	clientID, err := ioutil.ReadFile("client_id.json")
@@ -81,8 +104,7 @@ func main() {
 		log.Fatal("Zip file does not contain a HTML file")
 	}
 
-	log.WithField("filename", filename).Info("HTML file found")
-
+	log.WithField("filename", filename).Info("Cleaning and styling HTML")
 	htmlContent, err := cleanHTML(string(files[filename]))
 	if err != nil {
 		log.WithError(err).Fatal("Failed to clean HTML")
@@ -94,31 +116,66 @@ func main() {
 		htmlContent = strings.Replace(htmlContent, name, "cid:"+name, -1)
 	}
 
+	log.WithField("filename", filename).Info("Writing debug file")
 	if err := ioutil.WriteFile(filename, []byte(htmlContent), os.ModePerm); err != nil {
 		log.WithError(err).WithField("filename", filename).Error("Failed to write debug file, continuing")
-	} else {
-		log.WithField("filename", filename).Info("Writing debug file")
 	}
 
-	// Create the email and send via Sendgrid.
+	log.WithFields(log.Fields{"to": to, "cc": cc, "bcc": bcc}).Info("Reading recipients")
 
-	from := mail.NewEmail(*emailFromName, *emailFromAddress)
-	to := mail.NewEmail(*emailToName, *emailToAddress)
-	subject := *emailSubject
+	sg := sendgrid.NewSendClient(*sendgridAPIKey)
 
-	log.WithField("subject", subject).Info("Preparing email")
+	// Create an email and send it to the test account.
+	log.Info("Preparing test email")
+	testMail := constructEmail(sender, *emailSubject, htmlContent, filename, files)
+	p := mail.NewPersonalization()
+	p.AddTos(mail.NewEmail(testRecipient.Name, testRecipient.Address))
+	testMail.AddPersonalizations(p)
+	log.Infof("Sending test email to %s", testRecipient.Address)
+	if _, err := sg.Send(testMail); err != nil {
+		log.WithError(err).Fatal("Failed to send email")
+	}
+	log.Info("Test email sent, check your inbox")
 
+	// TODO: Wait for user input.
+
+	if !confirm("Send real email?") {
+		log.Info("Ok, exiting. No email was sent!")
+		return
+	}
+
+	// Create the real email and send it.
+
+	log.Info("Preparing real email")
+	realMail := constructEmail(sender, *emailSubject, htmlContent, filename, files)
+	p = mail.NewPersonalization()
+	for _, r := range to {
+		p.AddTos(mail.NewEmail(r.Name, r.Address))
+	}
+	for _, r := range cc {
+		p.AddCCs(mail.NewEmail(r.Name, r.Address))
+	}
+	for _, r := range bcc {
+		p.AddBCCs(mail.NewEmail(r.Name, r.Address))
+	}
+	realMail.AddPersonalizations(p)
+
+	log.Info("Sending to SendGrid")
+	if _, err := sg.Send(realMail); err != nil {
+		log.WithError(err).Fatal("Failed to send email")
+	}
+
+	log.Info("Email SENT!!")
+}
+
+func constructEmail(sender *netmail.Address, subject string, html string, filename string, files map[string][]byte) *mail.SGMailV3 {
 	m := mail.NewV3Mail()
+	from := mail.NewEmail(sender.Name, sender.Address)
 	m.SetFrom(from)
 	m.Subject = subject
-
-	p := mail.NewPersonalization()
-	p.AddTos(to)
-	m.AddPersonalizations(p)
-
-	c := mail.NewContent("text/html", htmlContent)
+	c := mail.NewContent("text/html", html)
 	m.AddContent(c)
-
+	log.WithField("count", len(files)-1).Info("Adding attachments")
 	for name, body := range files {
 		if name != filename {
 			a := mail.NewAttachment()
@@ -130,13 +187,26 @@ func main() {
 			m.AddAttachment(a)
 		}
 	}
+	return m
+}
 
-	return
-
-	sg := sendgrid.NewSendClient(*sendgridAPIKey)
-	if _, err := sg.Send(m); err != nil {
-		log.WithError(err).Fatal("Failed to send email")
+func parseAddressList(str string) ([]*netmail.Address, error) {
+	if str == "" {
+		return []*netmail.Address{}, nil
 	}
+	return netmail.ParseAddressList(str)
+}
 
-	log.Info("Email SENT!!")
+func confirm(s string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s [type 'yes' to confirm]: ", s)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.WithError(err).Fatal("Failed to read input")
+	}
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response == "yes" {
+		return true
+	}
+	return false
 }

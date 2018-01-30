@@ -1,2 +1,8 @@
+# The Google client config.
 client_id.json
-run.sh
+
+# Helper scripts.
+*.sh
+
+# Debug files written during processing.
+*.html
