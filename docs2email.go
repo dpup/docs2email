@@ -40,7 +40,7 @@ func main() {
 	log.SetHandler(cli.New(os.Stderr))
 
 	if *sendgridAPIKey == "" {
-		log.Fatal("Sendgrid not configured. Please set SENDGRID_API_KEY")
+		log.Fatal("Sendgrid not configured. Please set --sendgrid-api-key")
 	}
 	if *emailSubject == "" {
 		log.Fatal("No subject specified")
