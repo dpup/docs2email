@@ -6,3 +6,6 @@ client_id.json
 
 # Debug files written during processing.
 *.html
+
+# Built binary.
+docs2email

@@ -38,24 +38,26 @@ h6 {
 h1 {
   font-size: 26px;
   font-weight: 600;
-
+  color: #990000;
+  border-bottom: 1px solid #aaaaaa;
+  margin-top: 18px;
 }
 h2 {
   font-size: 22px;
-  font-weight: 600;
-}
-h3 {
-  font-size: 20px;
   font-weight: 400;
   color: #666;
 }
-h4 {
+h3 {
   font-size: 16px;
   font-weight: 600;
 }
+h4 {
+  font-size: 16px;
+  font-weight: 400;
+}
 h5 {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
 }
 h6 {
   font-size: 12px;
