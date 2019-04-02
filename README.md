@@ -2,6 +2,16 @@
 
 _Command line utility for sending Google Docs by Email_
 
+**Configuring Google APIs:**
+
+- Visit the [Google Developer Console](https://console.developers.google.com/start/api?id=drive) and create a new project
+- Create credentials -> OAuth client ID
+- Select "Other"
+- Download the credentials and save as `client_id.json` in the root of this repo
+- Then, under "Library" search for "Drive" and enable the Drive API for this project
+
+On first run of docs2email you'll be prompted throug hthe google oauth flow.
+
 **Usage:**
 
 ```bash
@@ -20,12 +30,12 @@ go run *.go \
 
 **What happens:**
 
-* You will be prompted to login via Google and authorize drive.
-* Copy/paste the access token when prompted, this will be cached locally.
-* Your doc is downloaded as a zip, parsed and cleaned up.
-* A test email is sent to the address specified in the `--test` flag.
-* Check the email looks good, then type "yes".
-* The email will be resent with the full TO, CC, and BCC lists specified in the flags.
+- You will be prompted to login via Google and authorize drive.
+- Copy/paste the access token when prompted, this will be cached locally.
+- Your doc is downloaded as a zip, parsed and cleaned up.
+- A test email is sent to the address specified in the `--test` flag.
+- Check the email looks good, then type "yes".
+- The email will be resent with the full TO, CC, and BCC lists specified in the flags.
 
 [Get a Sendgrid API Key](https://app.sendgrid.com/settings/api_keys).
 

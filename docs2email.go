@@ -73,7 +73,7 @@ func main() {
 		log.Fatal("Request access to both Gmail and Drive for your project.")
 	}
 
-	// Credentials are cached in ~/.credentials/drive2email.json
+	// Credentials are cached in ~/.credentials/docs2email.json
 	config, err := google.ConfigFromJSON(clientID, drive.DriveReadonlyScope)
 	if err != nil {
 		log.WithError(err).Fatal("Unable to parse client secret file to config")

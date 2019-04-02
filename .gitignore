@@ -1,6 +1,9 @@
 # The Google client config.
 client_id.json
 
+# Data file.
+recipient-list.txt
+
 # Helper scripts.
 *.sh
 
